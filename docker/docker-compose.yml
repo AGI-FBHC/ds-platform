@@ -1,6 +1,6 @@
-# 实验室服务器部署
-# 启动: docker-compose up -d
-# 停止: docker-compose down
+# Docker 部署
+# 启动: make up
+# 停止: make down
 
 version: '3.8'
 services:
@@ -10,7 +10,7 @@ services:
       dockerfile: docker/backend/Dockerfile
     container_name: ds-backend
     ports:
-      - "127.0.0.1:8000:8000"           # 仅本地暴露，frp 转发
+      - "8000:8000"                     # 后端 API
     volumes:
       - /d/Desktop/Projects/ds-platform/storage/datasets:/app/storage
       - ./logs:/app/logs
@@ -44,7 +44,7 @@ services:
       - mysql_data:/var/lib/mysql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro  # 初始化 SQL
     ports:
-      - "127.0.0.1:3306:3306"            # 仅本地暴露
+      - "3306:3306"                      # MySQL 数据库
     restart: unless-stopped
     networks:
       - ds-net

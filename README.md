@@ -116,8 +116,6 @@ mysql -u root -p ds_platform < docker/init.sql
 
 ## Docker 部署
 
-### 本地 Docker 开发
-
 ```bash
 cd docker
 
@@ -126,16 +124,14 @@ cp .env.example .env
 nano .env  # 填写 MYSQL_ROOT_PASSWORD 等
 
 # 启动
-docker-compose up -d
+make up
 
 # 查看日志
-docker-compose logs -f backend
+make logs
 
 # 停止
-docker-compose down
+make down
 ```
-
-### 云服务器 + 实验室内网穿透部署
 
 详见 [docker/README.md](docker/README.md)
 
