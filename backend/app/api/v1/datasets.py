@@ -157,6 +157,8 @@ def list_datasets(
             storage_path=ds.storage_path,
             is_published=ds.is_published,
             published_at=ds.published_at,
+            is_pinned=getattr(ds, 'is_pinned', False),
+            pinned_at=ds.pinned_at,
             owner_nickname=nickname or "未知用户",
             created_at=ds.created_at,
             updated_at=ds.updated_at,
@@ -184,14 +186,6 @@ def list_public_datasets(
             | (Dataset.description.ilike(f"%{search}%"))
         )
     datasets = query.all()
-    # Sort: pinned first (by pinned_at desc), then by published_at desc
-    def sort_key(item):
-        ds, nickname = item
-        if ds.is_pinned:
-            return (0, ds.pinned_at or ds.published_at or ds.created_at)
-        else:
-            return (1, ds.published_at or ds.created_at)
-    datasets = sorted(datasets, key=sort_key, reverse=True)
     result = []
     for ds, nickname in datasets:
         fields = ds.fields or {}

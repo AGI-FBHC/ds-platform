@@ -38,7 +38,7 @@
               <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" stroke="currentColor" stroke-width="1.5"/>
             </svg>
           </div>
-          <div class="banner-badges">
+          <div class="banner-right">
             <span v-if="ds.is_published" class="badge published-badge">
               <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="12" height="12">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
@@ -54,6 +54,17 @@
               </svg>
               {{ formatNumber(ds.image_count) }} 张
             </span>
+            <button
+              v-if="ds.is_published"
+              class="pin-btn"
+              :class="{ pinned: ds.is_pinned }"
+              @click.stop="togglePin(ds)"
+              :title="ds.is_pinned ? '取消置顶' : '置顶'"
+            >
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="14" height="14">
+                <path d="M16 12V4H17V2H7V4H8V12L6 14V16H11.2V22H12.8V16H18V14L16 12Z" :fill="ds.is_pinned ? 'currentColor' : 'none'" :stroke="ds.is_pinned ? 'currentColor' : 'currentColor'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -343,7 +354,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { listDatasets, deleteDataset, publishDataset, unpublishDataset, updateDataset } from '@/utils/api'
+import { listDatasets, deleteDataset, publishDataset, unpublishDataset, updateDataset, pinDataset, unpinDataset } from '@/utils/api'
 
 const showUpload = ref(false)
 const uploading = ref(false)
@@ -407,6 +418,25 @@ const fetchDatasets = async () => {
     ElMessage.error('加载数据集失败：' + (err.message || err))
   } finally {
     loading.value = false
+  }
+}
+
+const togglePin = async (ds) => {
+  try {
+    if (ds.is_pinned) {
+      await unpinDataset(ds.id)
+      ElMessage.success(`「${ds.name}」已取消置顶`)
+    } else {
+      await pinDataset(ds.id)
+      ElMessage.success(`「${ds.name}」已置顶`)
+    }
+    // 局部更新，不重新请求列表
+    const idx = myDatasets.value.findIndex(d => d.id === ds.id)
+    if (idx !== -1) {
+      myDatasets.value[idx] = { ...myDatasets.value[idx], is_pinned: !ds.is_pinned }
+    }
+  } catch (err) {
+    ElMessage.error('操作失败：' + (err.message || err))
   }
 }
 
@@ -569,7 +599,7 @@ const confirmDelete = async () => {
 .card-banner {
   background: linear-gradient(135deg, var(--accent-light) 0%, rgba(58,125,126,0.06) 100%);
   padding: 16px 20px;
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; gap: 12px;
   border-bottom: 1px solid var(--border-color);
 }
 .dark .card-banner { background: linear-gradient(135deg, rgba(58,125,126,0.12) 0%, rgba(58,125,126,0.05) 100%); }
@@ -577,18 +607,29 @@ const confirmDelete = async () => {
   width: 48px; height: 48px; border-radius: 12px;
   background: var(--bg-secondary); border: 1px solid var(--border-color);
   color: var(--accent-primary); display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
 }
-.banner-badges { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.banner-right { display: flex; flex-direction: row; align-items: center; gap: 6px; margin-left: auto; }
 .badge {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 3px 10px; border-radius: 20px;
   font-size: 11px; font-weight: 600;
+  white-space: nowrap;
 }
 .published-badge {
   background: rgba(5, 150, 105, 0.12); color: var(--success);
   border: 1px solid rgba(5, 150, 105, 0.25);
 }
 .count-badge { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border-color); }
+.pin-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 8px;
+  border: 1.5px solid var(--border-color); background: var(--bg-secondary);
+  color: var(--text-tertiary); cursor: pointer; transition: all 0.15s;
+  padding: 0; flex-shrink: 0;
+}
+.pin-btn:hover { border-color: var(--accent-primary); color: var(--accent-primary); background: rgba(58,125,126,0.08); }
+.pin-btn.pinned { background: var(--accent-primary); border-color: var(--accent-primary); color: #fff; }
 
 .card-body { padding: 16px 20px; flex: 1; display: flex; flex-direction: column; gap: 10px; }
 .card-title { font-size: 15px; font-weight: 700; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -70,32 +70,28 @@
               </svg>
             </div>
             <div class="banner-meta">
-              <span class="card-owner">
-                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="12" height="12">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                  <circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <div class="meta-left">
+                <span class="card-owner">
+                  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="12" height="12">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  {{ ds.owner_nickname || '未知用户' }}
+                </span>
+                <span class="card-count">
+                  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="12" height="12">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke="currentColor" stroke-width="2"/>
+                    <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
+                    <polyline points="21 15 16 10 5 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  {{ formatNumber(ds.image_count) }}
+                </span>
+              </div>
+              <span v-if="ds.is_pinned" class="pinned-indicator" title="已置顶">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="12" height="12">
+                  <path d="M16 12V4H17V2H7V4H8V12L6 14V16H11.2V22H12.8V16H18V14L16 12Z" fill="currentColor"/>
                 </svg>
-                {{ ds.owner_nickname || '未知用户' }}
               </span>
-              <span class="card-count">
-                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="12" height="12">
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke="currentColor" stroke-width="2"/>
-                  <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
-                  <polyline points="21 15 16 10 5 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                {{ formatNumber(ds.image_count) }}
-              </span>
-              <button
-                v-if="!isGuest && ds.user_id === currentUserId"
-                class="pin-btn"
-                :class="{ pinned: ds.is_pinned }"
-                @click="togglePin(ds, $event)"
-                :title="ds.is_pinned ? '取消置顶' : '置顶'"
-              >
-                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="11" height="11">
-                  <path d="M12 2L12 22M12 2L8 6M12 2L16 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </button>
             </div>
           </div>
 
@@ -353,21 +349,16 @@ onMounted(() => {
   background: var(--bg-secondary); border: 1px solid var(--border-color);
   color: var(--accent-primary); display: flex; align-items: center; justify-content: center;
 }
-.banner-meta { display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+.banner-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.meta-left { display: flex; flex-direction: column; gap: 5px; }
 .card-owner, .card-count {
   display: flex; align-items: center; gap: 4px;
   font-size: 11px; color: var(--text-secondary); font-weight: 500;
 }
-.banner-meta { display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
-.pin-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 22px; height: 22px; border-radius: 50%;
-  border: 1px solid var(--border-color); background: var(--bg-secondary);
-  color: var(--text-tertiary); cursor: pointer; transition: all 0.15s;
-  padding: 0; margin-top: 2px;
+.pinned-indicator {
+  display: inline-flex; align-items: center;
+  color: var(--accent-primary);
 }
-.pin-btn:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
-.pin-btn.pinned { background: var(--accent-primary); border-color: var(--accent-primary); color: #fff; }
 
 .card-body { padding: 16px 18px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .card-title {
