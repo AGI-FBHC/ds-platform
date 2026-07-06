@@ -368,6 +368,18 @@ export const unpublishDataset = (datasetId) =>
 
 
 
+export const pinDataset = (datasetId) =>
+
+  request(`/datasets/${datasetId}/pin`, { method: 'POST' })
+
+
+
+export const unpinDataset = (datasetId) =>
+
+  request(`/datasets/${datasetId}/unpin`, { method: 'POST' })
+
+
+
 export const saveDatasetFromTask = (taskId) =>
 
   request('/datasets/from-task', {

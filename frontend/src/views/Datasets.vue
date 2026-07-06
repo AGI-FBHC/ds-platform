@@ -85,6 +85,17 @@
                 </svg>
                 {{ formatNumber(ds.image_count) }}
               </span>
+              <button
+                v-if="!isGuest && ds.user_id === currentUserId"
+                class="pin-btn"
+                :class="{ pinned: ds.is_pinned }"
+                @click="togglePin(ds, $event)"
+                :title="ds.is_pinned ? '取消置顶' : '置顶'"
+              >
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="11" height="11">
+                  <path d="M12 2L12 22M12 2L8 6M12 2L16 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
             </div>
           </div>
 
@@ -131,16 +142,34 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { isLoggedIn, listPublicDatasets, listDatasets } from '@/utils/api'
+import { isLoggedIn, listPublicDatasets, listDatasets, pinDataset, unpinDataset, getUserInfo } from '@/utils/api'
 
 const router = useRouter()
 
 const isGuest = computed(() => !isLoggedIn())
+const currentUserId = computed(() => getUserInfo()?.id)
 const searchQuery = ref('')
 const selectedTags = ref([])
 const showMyOnly = ref(false)
 const contentRef = ref(null)
 const loading = ref(false)
+const pinnedIds = ref(new Set())
+
+const togglePin = async (ds, event) => {
+  event.stopPropagation()
+  if (!isLoggedIn()) return
+  try {
+    if (ds.is_pinned) {
+      await unpinDataset(ds.id)
+    } else {
+      await pinDataset(ds.id)
+    }
+    await fetchPublicDatasets()
+    await fetchMyPublished()
+  } catch (err) {
+    console.warn('Pin toggle failed:', err)
+  }
+}
 
 const publicDatasets = ref([])
 const myPublishedDatasets = ref([])
@@ -198,6 +227,7 @@ const fetchMyPublished = async () => {
   try {
     const all = await listDatasets()
     myPublishedDatasets.value = all.filter(ds => ds.is_published)
+    pinnedIds.value = new Set(all.filter(ds => ds.is_published && ds.is_pinned).map(ds => ds.id))
   } catch (err) {
     console.warn('Failed to fetch my published datasets:', err)
   }
@@ -328,6 +358,16 @@ onMounted(() => {
   display: flex; align-items: center; gap: 4px;
   font-size: 11px; color: var(--text-secondary); font-weight: 500;
 }
+.banner-meta { display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+.pin-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid var(--border-color); background: var(--bg-secondary);
+  color: var(--text-tertiary); cursor: pointer; transition: all 0.15s;
+  padding: 0; margin-top: 2px;
+}
+.pin-btn:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+.pin-btn.pinned { background: var(--accent-primary); border-color: var(--accent-primary); color: #fff; }
 
 .card-body { padding: 16px 18px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .card-title {

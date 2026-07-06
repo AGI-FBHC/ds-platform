@@ -29,6 +29,7 @@ class DatasetUpdate(BaseModel):
     fields: Optional[Dict[str, Any]] = None
     storage_path: Optional[str] = None
     is_published: Optional[bool] = None
+    is_pinned: Optional[bool] = None
 
 
 class DatasetSaveFromTask(BaseModel):
@@ -158,6 +159,8 @@ class DatasetResponse(BaseModel):
     storage_path: str
     is_published: bool = False
     published_at: Optional[datetime] = None
+    is_pinned: bool = False
+    pinned_at: Optional[datetime] = None
     owner_nickname: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
@@ -183,6 +186,8 @@ class DatasetListItem(BaseModel):
     storage_path: str
     is_published: bool = False
     published_at: Optional[datetime] = None
+    is_pinned: bool = False
+    pinned_at: Optional[datetime] = None
     owner_nickname: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None

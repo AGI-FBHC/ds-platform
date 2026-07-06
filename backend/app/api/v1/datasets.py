@@ -176,7 +176,7 @@ def list_public_datasets(
         db.query(Dataset, User.nickname)
         .outerjoin(User, Dataset.user_id == User.id)
         .filter(Dataset.is_published == True)
-        .order_by(Dataset.published_at.desc())
+        .order_by(Dataset.is_pinned.desc(), Dataset.pinned_at.desc().nullslast(), Dataset.published_at.desc())
     )
     if search:
         query = query.filter(
@@ -204,6 +204,8 @@ def list_public_datasets(
             storage_path=ds.storage_path,
             is_published=ds.is_published,
             published_at=ds.published_at,
+            is_pinned=ds.is_pinned,
+            pinned_at=ds.pinned_at,
             owner_nickname=nickname or "未知用户",
             created_at=ds.created_at,
             updated_at=ds.updated_at,
@@ -241,6 +243,47 @@ def unpublish_dataset(
         raise HTTPException(status_code=404, detail="Dataset not found")
     dataset.is_published = False
     dataset.published_at = None
+    db.commit()
+    db.refresh(dataset)
+    user = db.query(User).filter(User.id == dataset.user_id).first()
+    dataset.owner_nickname = user.nickname if user else "未知用户"
+    return dataset
+
+
+@router.post("/{dataset_id}/pin", response_model=DatasetResponse)
+def pin_dataset(
+    dataset_id: str,
+    db: Session = Depends(get_db),
+    current_user: UserSchema = Depends(get_current_user),
+):
+    """Pin a published dataset to the top of the list."""
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.user_id == current_user.id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    if not dataset.is_published:
+        raise HTTPException(status_code=400, detail="Only published datasets can be pinned")
+    dataset.is_pinned = True
+    from datetime import datetime
+    dataset.pinned_at = datetime.utcnow()
+    db.commit()
+    db.refresh(dataset)
+    user = db.query(User).filter(User.id == dataset.user_id).first()
+    dataset.owner_nickname = user.nickname if user else "未知用户"
+    return dataset
+
+
+@router.post("/{dataset_id}/unpin", response_model=DatasetResponse)
+def unpin_dataset(
+    dataset_id: str,
+    db: Session = Depends(get_db),
+    current_user: UserSchema = Depends(get_current_user),
+):
+    """Unpin a dataset."""
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.user_id == current_user.id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    dataset.is_pinned = False
+    dataset.pinned_at = None
     db.commit()
     db.refresh(dataset)
     user = db.query(User).filter(User.id == dataset.user_id).first()

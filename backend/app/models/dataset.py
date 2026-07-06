@@ -28,6 +28,9 @@ class Dataset(Base):
     is_published = Column(Boolean, default=False, nullable=False)
     published_at = Column(DateTime, nullable=True)
 
+    is_pinned = Column(Boolean, default=False, nullable=False, index=True)
+    pinned_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, server_default=func.current_timestamp())
     updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
 
