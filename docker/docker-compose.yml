@@ -1,0 +1,62 @@
+# 实验室服务器部署
+# 启动: docker-compose up -d
+# 停止: docker-compose down
+
+version: '3.8'
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend/Dockerfile
+    container_name: ds-backend
+    ports:
+      - "127.0.0.1:8000:8000"           # 仅本地暴露，frp 转发
+    volumes:
+      - /d/Desktop/Projects/ds-platform/storage/datasets:/app/storage
+      - ./logs:/app/logs
+    environment:
+      - MYSQL_HOST=db
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=ds_platform
+      - STORAGE_ROOT=/app/storage
+      - ALIYUN_ACCESS_KEY_ID=${ALIYUN_ACCESS_KEY_ID}
+      - ALIYUN_ACCESS_KEY_SECRET=${ALIYUN_ACCESS_KEY_SECRET}
+      - ALIYUN_IMAGESEG_ENDPOINT=${ALIYUN_IMAGESEG_ENDPOINT:-imageseg.cn-shanghai.aliyuncs.com}
+      - ALIYUN_IMAGESEG_REGION=${ALIYUN_IMAGESEG_REGION:-cn-shanghai}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ds-net
+
+  db:
+    image: mysql:8.0
+    container_name: ds-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ds_platform
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro  # 初始化 SQL
+    ports:
+      - "127.0.0.1:3306:3306"            # 仅本地暴露
+    restart: unless-stopped
+    networks:
+      - ds-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql_data:
+
+networks:
+  ds-net:
+    driver: bridge

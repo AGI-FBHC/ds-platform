@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+*.so
+
+# Node
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# Frontend build
+frontend/dist/
+frontend/.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.log
+
+# Database
+*.db
+*.sqlite
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Docker
+docker/logs/
+
+# Storage (user data)
+storage/
+
+# Misc
+.dev.err.log
+.dev.log
+startup.log
+startup_err.log

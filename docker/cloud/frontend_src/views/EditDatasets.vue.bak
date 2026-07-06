@@ -1,0 +1,865 @@
+<template>
+  <div class="edit-ds-page">
+    <div class="page-header">
+      <div>
+        <h2>编辑数据�?/h2>
+        <p class="page-desc">选择�?Crawler Agent 保存的数据集，筛选、修改、批量编辑样本信�?/p>
+      </div>
+      <div class="header-actions">
+        <button class="ghost-btn" @click="loadDatasets" :disabled="loadingDatasets">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/>
+            <polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          刷新
+        </button>
+      </div>
+    </div>
+
+    <!-- Dataset picker -->
+    <div class="ds-picker">
+      <div class="ds-picker-label">选择数据�?/div>
+      <el-select
+        v-if="datasets.length > 0"
+        v-model="selectedDatasetId"
+        placeholder="选择一个数据集"
+        filterable
+        class="ds-picker-select"
+        @change="onDatasetChange"
+      >
+        <el-option
+          v-for="ds in datasets"
+          :key="ds.id"
+          :label="ds.name"
+          :value="ds.id"
+        >
+          <div class="ds-option">
+            <span class="ds-option-name">{{ ds.name }}</span>
+            <span class="ds-option-meta">{{ ds.image_count }} �?/span>
+          </div>
+        </el-option>
+      </el-select>
+      <div v-else class="ds-empty">
+        <template v-if="loadingDatasets">加载�?..</template>
+        <template v-else>
+          还没有可编辑的数据集，请先去
+          <router-link to="/app/tasks">任务�?/router-link>
+          跑个任务并保存到数据库�?
+        </template>
+      </div>
+    </div>
+
+    <template v-if="currentDataset">
+      <!-- Dataset info bar -->
+      <div class="ds-info-bar">
+        <div class="ds-info-main">
+          <h3>{{ currentDataset.name }}</h3>
+          <p class="ds-info-desc">{{ currentDataset.description || '无描�? }}</p>
+        </div>
+        <div class="ds-info-stats">
+          <div class="stat">
+            <span class="stat-value">{{ currentDataset.image_count }}</span>
+            <span class="stat-label">样本</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value">{{ formatBytes(currentDataset.total_size) }}</span>
+            <span class="stat-label">大小</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value">{{ currentDataset.format }}</span>
+            <span class="stat-label">格式</span>
+          </div>
+        </div>
+        <div class="ds-info-chips" v-if="axes.length > 0">
+          <span class="axis-chip" v-for="ax in axes" :key="ax.axis_key">
+            {{ ax.axis_name }}
+            <em>{{ ax.values.length }}</em>
+          </span>
+          <span v-if="needMask" class="axis-chip mask">Mask 开�?/span>
+        </div>
+      </div>
+
+      <!-- Filter / action bar -->
+      <div class="filter-bar">
+        <div class="filter-left">
+          <input
+            v-model="filters.keyword"
+            class="filter-input"
+            placeholder="搜索关键�?.."
+            @keydown.enter="reloadImages(1)"
+          />
+          <select v-model="filters.mask_status" class="filter-select" @change="reloadImages(1)">
+            <option value="">全部 Mask 状�?/option>
+            <option value="not_requested">未生�?/option>
+            <option value="pending">生成�?/option>
+            <option value="completed">已完�?/option>
+            <option value="failed">生成失败</option>
+          </select>
+          <input v-model.number="filters.min_width" type="number" class="filter-input small" placeholder="最小宽�? @keydown.enter="reloadImages(1)" />
+          <input v-model.number="filters.max_width" type="number" class="filter-input small" placeholder="最大宽�? @keydown.enter="reloadImages(1)" />
+          <button class="primary-btn small" @click="reloadImages(1)">应用筛�?/button>
+          <button class="ghost-btn small" @click="resetFilters">重置</button>
+        </div>
+        <div class="filter-right">
+        <div class="view-toggle">
+          <button :class="{ active: viewMode === 'grid' }" @click="viewMode = 'grid'">网格</button>
+          <button :class="{ active: viewMode === 'list' }" @click="viewMode = 'list'">列表</button>
+        </div>
+        <span class="result-count">{{ filteredCount }} 条结�?/span>
+      </div>
+      </div>
+
+      <!-- Selection bar -->
+      <div class="select-bar">
+        <label class="select-all">
+          <input type="checkbox" :checked="allOnPageSelected" @change="toggleSelectAllOnPage" />
+          当前页全�?
+        </label>
+        <span v-if="selectedIds.size > 0" class="selected-pill">已�?{{ selectedIds.size }} �?/span>
+        <button v-if="selectedIds.size > 0" class="ghost-btn small" @click="clearSelection">清除选择</button>
+      </div>
+
+      <!-- Image grid -->
+      <div v-if="loadingImages" class="grid-loading">加载样本�?..</div>
+      <div v-else-if="images.length === 0" class="grid-empty">没有符合条件的样�?/div>
+      <div v-else-if="viewMode === 'grid'" class="image-grid">
+        <div
+          v-for="img in images"
+          :key="img.id"
+          class="image-card"
+          :class="{ selected: selectedIds.has(img.id) }"
+        >
+          <label class="image-check" @click.stop>
+            <input type="checkbox" :checked="selectedIds.has(img.id)" @change="toggleImage(img.id)" />
+          </label>
+          <div class="image-thumb" @click="openDetail(img)">
+            <img
+              :src="datasetImageUrl(currentDataset.id, img.relative_path)"
+              :alt="img.filename"
+              loading="lazy"
+              @error="onImgError($event)"
+            />
+            <span v-if="img.mask_status === 'completed'" class="mask-badge" title="已生�?mask">M</span>
+            <span v-else-if="img.mask_status === 'failed'" class="mask-badge failed" title="mask 生成失败">!</span>
+          </div>
+          <div class="image-meta">
+            <div class="image-name" :title="img.filename">{{ img.filename }}</div>
+            <div class="image-keyword" v-if="img.keyword">#{{ img.keyword }}</div>
+            <div class="image-labels">
+              <span v-for="(v, k) in (img.labels || {})" :key="k" class="label-chip">{{ k }}={{ v }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-else class="image-list" :style="gridStyle">
+        <div class="list-header">
+          <div class="col col-check"></div>
+          <div class="col col-thumb">缩略�?/div>
+          <div class="col col-name">文件�?/div>
+          <div class="col col-keyword">关键�?/div>
+          <div class="col col-mask">Mask</div>
+          <div class="col col-axis" v-for="ax in axes" :key="ax.axis_key">{{ ax.axis_name }}</div>
+          <div class="col col-source">来源</div>
+          <div class="col col-actions">操作</div>
+        </div>
+        <div v-for="img in images" :key="img.id" class="list-row" :class="{ selected: selectedIds.has(img.id), saving: savingIds.has(img.id) }">
+          <div class="col col-check">
+            <input type="checkbox" :checked="selectedIds.has(img.id)" @change="toggleImage(img.id)" />
+          </div>
+          <div class="col col-thumb">
+            <img :src="datasetImageUrl(currentDataset.id, img.relative_path)" :alt="img.filename" loading="lazy" @error="onImgError($event)" @click="openDetail(img)" />
+          </div>
+          <div class="col col-name" :title="img.filename" @click="openDetail(img)">{{ img.filename }}</div>
+          <div class="col col-keyword">
+            <input class="cell-input" :value="img.keyword || ''" placeholder="--" @change="updateField(img, 'keyword', $event.target.value)" />
+          </div>
+          <div class="col col-mask">
+            <select class="cell-select" :value="img.mask_status || 'not_requested'" @change="updateField(img, 'mask_status', $event.target.value)">
+              <option value="not_requested">未生�?/option>
+              <option value="pending">生成�?/option>
+              <option value="completed">已完�?/option>
+              <option value="failed">失败</option>
+            </select>
+          </div>
+          <div class="col col-axis" v-for="ax in axes" :key="ax.axis_key">
+            <select class="cell-select" :value="(img.labels || {})[ax.axis_key] || ''" @change="updateLabel(img, ax.axis_key, $event.target.value)">
+              <option value="">-- 未标�?--</option>
+              <option v-for="v in ax.values" :key="v.value_key" :value="v.value_key">{{ v.value_name }}</option>
+            </select>
+          </div>
+          <div class="col col-source" :title="img.source_page_title">
+            <input class="cell-input" :value="img.source_page_title || ''" placeholder="--" @change="updateField(img, 'source_page_title', $event.target.value)" />
+          </div>
+          <div class="col col-actions">
+            <span v-if="recentlySavedIds.has(img.id)" class="saved-pulse">已保�?/span>
+            <button class="icon-btn" @click="openDetail(img)" title="详情">详情</button>
+            <button class="icon-btn danger" @click="quickDelete(img)" title="删除">删除</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pagination -->
+      <div v-if="totalPages > 1" class="pagination">
+        <button class="page-btn" :disabled="page <= 1" @click="reloadImages(page - 1)">上一�?/button>
+        <span class="page-info">{{ page }} / {{ totalPages }}</span>
+        <button class="page-btn" :disabled="page >= totalPages" @click="reloadImages(page + 1)">下一�?/button>
+      </div>
+
+      <!-- Bulk action floating bar -->
+      <transition name="bulk-fade">
+        <div v-if="selectedIds.size > 0" class="bulk-bar">
+          <span class="bulk-count">已�?<b>{{ selectedIds.size }}</b> �?/span>
+          <button class="bulk-btn" @click="openBulkLabelDialog" :disabled="axes.length === 0">批量改分�?/button>
+          <button class="bulk-btn" v-if="needMask" @click="bulkUpdateMask('completed')">标记 Mask 完成</button>
+          <button class="bulk-btn" v-if="needMask" @click="bulkUpdateMask('failed')">标记 Mask 失败</button>
+          <button class="bulk-btn danger" @click="bulkDelete">删除</button>
+        </div>
+      </transition>
+    </template>
+
+    <!-- Image detail dialog -->
+    <el-dialog
+      v-model="detailVisible"
+      width="780"
+      align-center
+      destroy-on-close
+      class="image-detail-dialog"
+      :title="detailImage?.filename || '样本详情'"
+    >
+      <div v-if="detailImage" class="detail-content">
+        <div class="detail-preview">
+          <img
+            :src="datasetImageUrl(currentDataset.id, detailImage.relative_path)"
+            :alt="detailImage.filename"
+          />
+          <div v-if="detailImage.mask_relative_path" class="mask-preview">
+            <img
+              :src="datasetImageUrl(currentDataset.id, detailImage.mask_relative_path)"
+              :alt="detailImage.filename + '.mask'"
+              @error="onImgError($event)"
+            />
+            <span class="mask-preview-label">Mask</span>
+          </div>
+        </div>
+        <div class="detail-fields">
+          <div class="field">
+            <label>关键�?/label>
+            <input v-model="editForm.keyword" />
+          </div>
+          <div class="field" v-for="ax in axes" :key="ax.axis_key">
+            <label>{{ ax.axis_name }}</label>
+            <select v-model="editForm.labels[ax.axis_key]">
+              <option value="">-- 未标�?--</option>
+              <option v-for="v in ax.values" :key="v.value_key" :value="v.value_key">{{ v.value_name }}</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Mask 状�?/label>
+            <select v-model="editForm.mask_status">
+              <option value="not_requested">未生�?/option>
+              <option value="pending">生成�?/option>
+              <option value="completed">已完�?/option>
+              <option value="failed">生成失败</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>来源页标�?/label>
+            <input v-model="editForm.source_page_title" />
+          </div>
+          <div class="field readonly">
+            <label>尺寸</label>
+            <span>{{ detailImage.width }} × {{ detailImage.height }}</span>
+          </div>
+          <div class="field readonly">
+            <label>URL</label>
+            <span class="readonly-text">{{ detailImage.url }}</span>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <div class="detail-footer">
+          <button class="ghost-btn" @click="detailVisible = false">取消</button>
+          <button class="danger-btn" @click="deleteOne(detailImage.id)" :disabled="detailSaving">删除</button>
+          <button class="primary-btn" @click="saveDetail" :disabled="detailSaving">{{ detailSaving ? '保存�?..' : '保存' }}</button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- Bulk label edit dialog -->
+    <el-dialog v-model="bulkDialogVisible" title="批量修改分类" width="480" align-center destroy-on-close>
+      <div class="bulk-form">
+        <div class="field" v-for="ax in axes" :key="ax.axis_key">
+          <label>{{ ax.axis_name }}</label>
+          <select v-model="bulkForm.labels[ax.axis_key]">
+            <option value="">-- 不修�?--</option>
+            <option v-for="v in ax.values" :key="v.value_key" :value="v.value_key">{{ v.value_name }}</option>
+          </select>
+        </div>
+        <p class="bulk-tip">选择 "不修�? 则跳过该轴。只替换选中样本的分类字段�?/p>
+      </div>
+      <template #footer>
+        <button class="ghost-btn" @click="bulkDialogVisible = false">取消</button>
+        <button class="primary-btn" @click="applyBulkLabel" :disabled="bulkApplying">{{ bulkApplying ? '应用�?..' : '应用到选中�? }}</button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  listDatasets,
+  listDatasetImages,
+  patchDatasetImage,
+  deleteDatasetImage,
+  bulkUpdateDatasetImages,
+  datasetImageUrl,
+} from '@/utils/api'
+import { onDatasetListChanged } from '@/utils/datasetBus'
+
+const PAGE_SIZE = 48
+
+const datasets = ref([])
+const loadingDatasets = ref(false)
+const selectedDatasetId = ref(null)
+const currentDataset = ref(null)
+const images = ref([])
+const loadingImages = ref(false)
+const totalPages = ref(1)
+const page = ref(1)
+const totalCount = ref(0)
+const selectedIds = ref(new Set())
+const detailVisible = ref(false)
+const detailImage = ref(null)
+const detailSaving = ref(false)
+const editForm = ref({ keyword: '', labels: {}, mask_status: 'not_requested', source_page_title: '' })
+
+const bulkDialogVisible = ref(false)
+const bulkApplying = ref(false)
+const bulkForm = ref({ labels: {} })
+
+const filters = ref({ keyword: '', mask_status: '', min_width: null, max_width: null })
+const viewMode = ref('list')
+const savingIds = ref(new Set())
+const recentlySavedIds = ref(new Set())
+
+const axes = computed(() => {
+  const fields = currentDataset.value?.fields || {}
+  return fields.classification_axes || []
+})
+
+const needMask = computed(() => Boolean(currentDataset.value?.fields?.need_mask))
+
+const allOnPageSelected = computed(() => {
+  if (images.value.length === 0) return false
+  return images.value.every(img => selectedIds.value.has(img.id))
+})
+
+const filteredCount = computed(() => totalCount.value)
+
+const formatBytes = (n) => {
+  if (!n) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let v = Number(n)
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
+  return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`
+}
+
+const onImgError = () => {
+  // No-op: the browser shows its own broken-image placeholder.
+  // Previously we dimmed the image here, which made failures look like
+  // "hidden" rather than genuinely broken, confusing users during debugging.
+}
+
+const loadDatasets = async () => {
+  loadingDatasets.value = true
+  try {
+    const list = await listDatasets()
+    datasets.value = list
+    // If the currently selected dataset no longer exists (deleted elsewhere), reset selection.
+    const stillExists = selectedDatasetId.value && list.some(d => d.id === selectedDatasetId.value)
+    if (!stillExists) {
+      selectedDatasetId.value = null
+      currentDataset.value = null
+      images.value = []
+      totalCount.value = 0
+      totalPages.value = 1
+      selectedIds.value = new Set()
+    }
+    if (list.length > 0 && !selectedDatasetId.value) {
+      // Prefer a dataset that actually has images so the grid is not empty on first paint.
+      const withImages = list.find(d => (d.image_count || 0) > 0) || list[0]
+      selectedDatasetId.value = withImages.id
+      await onDatasetChange(withImages.id)
+    }
+  } catch (err) {
+    ElMessage.error('加载数据集列表失败：' + (err.message || err))
+  } finally {
+    loadingDatasets.value = false
+  }
+}
+
+const onDatasetChange = async (id) => {
+  if (!id) return
+  selectedDatasetId.value = id
+  try {
+    const ds = await (await import('@/utils/api')).getDataset(id)
+    currentDataset.value = ds
+    selectedIds.value = new Set()
+    page.value = 1
+    await reloadImages(1)
+  } catch (err) {
+    ElMessage.error('加载数据集失败：' + (err.message || err))
+  }
+}
+
+const reloadImages = async (targetPage) => {
+  if (!currentDataset.value) return
+  const p = Number(targetPage) || 1
+  loadingImages.value = true
+  page.value = p
+  try {
+    const params = {
+      limit: PAGE_SIZE,
+      offset: (p - 1) * PAGE_SIZE,
+    }
+    if (filters.value.keyword) params.keyword = filters.value.keyword
+    if (filters.value.mask_status) params.mask_status = filters.value.mask_status
+    if (filters.value.min_width) params.min_width = filters.value.min_width
+    if (filters.value.max_width) params.max_width = filters.value.max_width
+    const result = await listDatasetImages(currentDataset.value.id, params)
+    images.value = result.items || result || []
+    totalCount.value = result.total ?? images.value.length
+    totalPages.value = Math.max(1, Math.ceil(totalCount.value / PAGE_SIZE))
+  } catch (err) {
+    ElMessage.error('加载样本失败�? + (err.message || err))
+    images.value = []
+    totalCount.value = 0
+    totalPages.value = 1
+  } finally {
+    loadingImages.value = false
+  }
+}
+
+const resetFilters = () => {
+  filters.value = { keyword: '', mask_status: '', min_width: null, max_width: null }
+  reloadImages(1)
+}
+
+const flashSaved = (imageId) => {
+  const next = new Set(recentlySavedIds.value)
+  next.add(imageId)
+  recentlySavedIds.value = next
+  setTimeout(() => {
+    const after = new Set(recentlySavedIds.value)
+    after.delete(imageId)
+    recentlySavedIds.value = after
+  }, 1500)
+}
+
+const updateField = async (image, field, value) => {
+  if (!currentDataset.value) return
+  if ((image[field] || '') === (value || '')) return
+  if (savingIds.value.has(image.id)) return
+  const next = new Set(savingIds.value)
+  next.add(image.id)
+  savingIds.value = next
+  const oldValue = image[field]
+  image[field] = value
+  try {
+    const updated = await patchDatasetImage(currentDataset.value.id, image.id, { [field]: value })
+    Object.assign(image, updated)
+    flashSaved(image.id)
+  } catch (err) {
+    image[field] = oldValue
+    ElMessage.error('更新失败: ' + (err.message || err))
+  } finally {
+    const after = new Set(savingIds.value)
+    after.delete(image.id)
+    savingIds.value = after
+  }
+}
+
+const updateLabel = async (image, axisKey, value) => {
+  if (!currentDataset.value) return
+  const oldLabels = image.labels || {}
+  if ((oldLabels[axisKey] || '') === (value || '')) return
+  if (savingIds.value.has(image.id)) return
+  const next = new Set(savingIds.value)
+  next.add(image.id)
+  savingIds.value = next
+  const newLabels = { ...oldLabels }
+  if (value) {
+    newLabels[axisKey] = value
+  } else {
+    delete newLabels[axisKey]
+  }
+  image.labels = newLabels
+  try {
+    const updated = await patchDatasetImage(currentDataset.value.id, image.id, { labels: newLabels })
+    Object.assign(image, updated)
+    flashSaved(image.id)
+  } catch (err) {
+    image.labels = oldLabels
+    ElMessage.error('更新失败: ' + (err.message || err))
+  } finally {
+    const after = new Set(savingIds.value)
+    after.delete(image.id)
+    savingIds.value = after
+  }
+}
+
+const quickDelete = async (image) => {
+  try {
+    await ElMessageBox.confirm(`确认删除样本 ${image.filename}？此操作不可恢复。`, '删除确认', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch { return }
+  if (!currentDataset.value) return
+  try {
+    await deleteDatasetImage(currentDataset.value.id, image.id)
+    ElMessage.success('已删�?)
+    selectedIds.value.delete(image.id)
+    await reloadImages(page.value)
+  } catch (err) {
+    ElMessage.error('删除失败: ' + (err.message || err))
+  }
+}
+
+const toggleImage = (id) => {
+  const next = new Set(selectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedIds.value = next
+}
+
+const toggleSelectAllOnPage = () => {
+  const next = new Set(selectedIds.value)
+  if (allOnPageSelected.value) {
+    images.value.forEach(img => next.delete(img.id))
+  } else {
+    images.value.forEach(img => next.add(img.id))
+  }
+  selectedIds.value = next
+}
+
+const clearSelection = () => {
+  selectedIds.value = new Set()
+}
+
+const openDetail = (img) => {
+  detailImage.value = img
+  editForm.value = {
+    keyword: img.keyword || '',
+    labels: { ...(img.labels || {}) },
+    mask_status: img.mask_status || 'not_requested',
+    source_page_title: img.source_page_title || '',
+  }
+  detailVisible.value = true
+}
+
+const saveDetail = async () => {
+  if (!detailImage.value || !currentDataset.value) return
+  detailSaving.value = true
+  try {
+    const payload = {
+      keyword: editForm.value.keyword,
+      labels: editForm.value.labels,
+      mask_status: editForm.value.mask_status,
+      source_page_title: editForm.value.source_page_title,
+    }
+    const updated = await patchDatasetImage(currentDataset.value.id, detailImage.value.id, payload)
+    Object.assign(detailImage.value, updated)
+    const idx = images.value.findIndex(i => i.id === detailImage.value.id)
+    if (idx >= 0) images.value[idx] = { ...images.value[idx], ...updated }
+    ElMessage.success('已保�?)
+    detailVisible.value = false
+  } catch (err) {
+    ElMessage.error('保存失败�? + (err.message || err))
+  } finally {
+    detailSaving.value = false
+  }
+}
+
+const deleteOne = async (imageId) => {
+  try {
+    await ElMessageBox.confirm('确认删除该样本？此操作不可恢复�?, '删除确认', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch { return }
+  if (!currentDataset.value) return
+  detailSaving.value = true
+  try {
+    await deleteDatasetImage(currentDataset.value.id, imageId)
+    ElMessage.success('已删�?)
+    detailVisible.value = false
+    selectedIds.value.delete(imageId)
+    await reloadImages(page.value)
+  } catch (err) {
+    ElMessage.error('删除失败�? + (err.message || err))
+  } finally {
+    detailSaving.value = false
+  }
+}
+
+const openBulkLabelDialog = () => {
+  bulkForm.value = { labels: {} }
+  axes.value.forEach(ax => { bulkForm.value.labels[ax.axis_key] = '' })
+  bulkDialogVisible.value = true
+}
+
+const applyBulkLabel = async () => {
+  const setLabels = {}
+  for (const [k, v] of Object.entries(bulkForm.value.labels || {})) {
+    if (v) setLabels[k] = v
+  }
+  if (Object.keys(setLabels).length === 0) {
+    ElMessage.warning('至少选择一个分类轴的新�?)
+    return
+  }
+  bulkApplying.value = true
+  try {
+    const ids = Array.from(selectedIds.value)
+    await bulkUpdateDatasetImages(currentDataset.value.id, {
+      image_ids: ids,
+      set: { labels: setLabels },
+    })
+    ElMessage.success(`已更�?${ids.length} 项`)
+    bulkDialogVisible.value = false
+    clearSelection()
+    await reloadImages(page.value)
+  } catch (err) {
+    ElMessage.error('批量更新失败�? + (err.message || err))
+  } finally {
+    bulkApplying.value = false
+  }
+}
+
+const bulkUpdateMask = async (status) => {
+  const ids = Array.from(selectedIds.value)
+  if (ids.length === 0) return
+  try {
+    await bulkUpdateDatasetImages(currentDataset.value.id, {
+      image_ids: ids,
+      set: { mask_status: status },
+    })
+    ElMessage.success(`已将 ${ids.length} 项标记为 ${status}`)
+    await reloadImages(page.value)
+  } catch (err) {
+    ElMessage.error('更新失败�? + (err.message || err))
+  }
+}
+
+const bulkDelete = async () => {
+  const ids = Array.from(selectedIds.value)
+  if (ids.length === 0) return
+  try {
+    await ElMessageBox.confirm(`确认删除选中�?${ids.length} 项样本？`, '批量删除', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch { return }
+  let ok = 0
+  let failed = 0
+  for (const id of ids) {
+    try {
+      await deleteDatasetImage(currentDataset.value.id, id)
+      ok++
+    } catch (err) {
+      failed++
+    }
+  }
+  ElMessage.success(`已删�?${ok} �?{failed ? `�?{failed} 项失败` : ''}`)
+  clearSelection()
+  await reloadImages(page.value)
+}
+
+let stopDatasetListWatch = null
+onMounted(() => {
+  loadDatasets()
+  // Cross-component sync via shared reactive bus (works in same tab).
+  // The bus also bumps a localStorage key so other browser tabs can react via the `storage` event.
+  stopDatasetListWatch = onDatasetListChanged(() => {
+    loadDatasets()
+  })
+})
+
+onUnmounted(() => {
+  if (stopDatasetListWatch) {
+    stopDatasetListWatch()
+    stopDatasetListWatch = null
+  }
+})
+</script>
+
+<style scoped>
+.edit-ds-page { padding: 0 4px; max-width: 1400px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+.page-header h2 { margin: 0 0 4px; font-size: 20px; font-weight: 600; color: #1f2937; }
+.page-desc { margin: 0; font-size: 13px; color: #94a3b8; }
+.header-actions { display: flex; gap: 8px; }
+
+.ghost-btn, .primary-btn, .danger-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 8px; font-size: 13px; cursor: pointer;
+  border: 1px solid transparent; transition: all 0.15s ease; background: white;
+}
+.ghost-btn { color: #475569; border-color: rgba(148, 163, 184, 0.3); }
+.ghost-btn:hover { background: rgba(148, 163, 184, 0.08); }
+.ghost-btn.small, .primary-btn.small { padding: 5px 10px; font-size: 12px; }
+.primary-btn { background: #3a7d7e; color: white; }
+.primary-btn:hover:not(:disabled) { background: #2f6667; }
+.primary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.danger-btn { color: #ef4444; border-color: rgba(239, 68, 68, 0.4); background: white; }
+.danger-btn:hover:not(:disabled) { background: rgba(239, 68, 68, 0.08); }
+.danger-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Dataset picker */
+.ds-picker { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: rgba(255,255,255,0.6); border: 1px solid rgba(148,163,184,0.18); border-radius: 12px; margin-bottom: 16px; }
+.ds-picker-label { font-size: 13px; color: #64748b; white-space: nowrap; }
+.ds-picker-select { flex: 1; max-width: 480px; }
+.ds-option { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.ds-option-name { font-size: 13px; color: #1f2937; }
+.ds-option-meta { font-size: 12px; color: #94a3b8; }
+.ds-empty { font-size: 13px; color: #94a3b8; }
+.ds-empty a { color: #3a7d7e; text-decoration: none; font-weight: 500; }
+.ds-empty a:hover { text-decoration: underline; }
+
+/* Dataset info bar */
+.ds-info-bar { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 20px; padding: 16px 18px; background: rgba(58,125,126,0.05); border: 1px solid rgba(58,125,126,0.12); border-radius: 12px; margin-bottom: 16px; }
+.ds-info-main h3 { margin: 0 0 4px; font-size: 16px; font-weight: 600; color: #1f2937; }
+.ds-info-desc { margin: 0; font-size: 12.5px; color: #64748b; }
+.ds-info-stats { display: flex; gap: 20px; }
+.ds-info-stats .stat { display: flex; flex-direction: column; align-items: flex-end; }
+.ds-info-stats .stat-value { font-size: 16px; font-weight: 600; color: #3a7d7e; }
+.ds-info-stats .stat-label { font-size: 11px; color: #94a3b8; }
+.ds-info-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.axis-chip { font-size: 11.5px; padding: 3px 9px; border-radius: 999px; background: rgba(58,125,126,0.12); color: #2f6667; }
+.axis-chip em { font-style: normal; opacity: 0.7; margin-left: 3px; }
+.axis-chip.mask { background: rgba(245,158,11,0.12); color: #b45309; }
+
+/* Filter bar */
+.filter-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.filter-left { display: flex; gap: 8px; flex-wrap: wrap; }
+.filter-right { font-size: 12.5px; color: #94a3b8; }
+.filter-input, .filter-select { padding: 6px 10px; border: 1px solid rgba(148,163,184,0.3); border-radius: 8px; font-size: 12.5px; background: white; color: #1f2937; min-width: 130px; }
+.filter-input.small { min-width: 90px; max-width: 110px; }
+.filter-input:focus, .filter-select:focus { outline: none; border-color: #3a7d7e; }
+
+/* Select bar */
+.select-bar { display: flex; align-items: center; gap: 12px; padding: 6px 12px; margin-bottom: 10px; font-size: 12.5px; color: #64748b; }
+.select-all { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.selected-pill { background: rgba(58,125,126,0.1); color: #2f6667; padding: 2px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 500; }
+
+/* Image grid */
+.grid-loading, .grid-empty { padding: 40px 0; text-align: center; font-size: 13px; color: #94a3b8; }
+.image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.image-card { position: relative; background: white; border: 1px solid rgba(148,163,184,0.18); border-radius: 10px; overflow: hidden; transition: all 0.15s ease; }
+.image-card:hover { border-color: rgba(58,125,126,0.4); box-shadow: 0 4px 12px rgba(58,125,126,0.08); }
+.image-card.selected { border-color: #3a7d7e; box-shadow: 0 0 0 2px rgba(58,125,126,0.18); }
+.image-check { position: absolute; top: 6px; left: 6px; z-index: 2; background: rgba(255,255,255,0.92); border-radius: 6px; padding: 3px 5px; cursor: pointer; display: flex; }
+.image-thumb { position: relative; aspect-ratio: 1; background: #f1f5f9; cursor: pointer; overflow: hidden; }
+.image-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mask-badge { position: absolute; top: 6px; right: 6px; background: rgba(58,125,126,0.92); color: white; font-size: 10px; font-weight: 600; width: 18px; height: 18px; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+.mask-badge.failed { background: rgba(239,68,68,0.92); }
+.image-meta { padding: 8px 10px; }
+.image-name { font-size: 11.5px; color: #1f2937; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.image-keyword { font-size: 11px; color: #64748b; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.image-labels { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+.label-chip { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: rgba(245,158,11,0.12); color: #92400e; }
+
+/* Pagination */
+.pagination { display: flex; justify-content: center; align-items: center; gap: 12px; margin: 18px 0; }
+.page-btn { padding: 6px 12px; border: 1px solid rgba(148,163,184,0.3); border-radius: 6px; background: white; cursor: pointer; font-size: 12px; color: #475569; }
+.page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.page-info { font-size: 12.5px; color: #64748b; }
+
+/* Bulk action floating bar */
+.bulk-bar { position: sticky; bottom: 20px; margin: 16px auto 0; max-width: 700px; display: flex; align-items: center; gap: 10px; padding: 12px 18px; background: #1f2937; color: white; border-radius: 14px; box-shadow: 0 8px 24px rgba(31,41,55,0.18); z-index: 5; }
+.bulk-count { font-size: 13px; flex: 1; }
+.bulk-count b { color: #4ea0a1; font-weight: 600; }
+.bulk-btn { padding: 6px 12px; border-radius: 6px; background: rgba(255,255,255,0.12); color: white; border: none; font-size: 12.5px; cursor: pointer; transition: all 0.15s ease; }
+.bulk-btn:hover:not(:disabled) { background: rgba(255,255,255,0.22); }
+.bulk-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.bulk-btn.danger { background: rgba(239,68,68,0.85); }
+.bulk-btn.danger:hover { background: rgba(239,68,68,1); }
+.bulk-fade-enter-active, .bulk-fade-leave-active { transition: all 0.2s ease; }
+.bulk-fade-enter-from, .bulk-fade-leave-to { transform: translateY(20px); opacity: 0; }
+
+/* Image detail dialog */
+.image-detail-dialog .el-dialog__body { padding: 0; }
+.detail-content { display: grid; grid-template-columns: 1fr 1fr; min-height: 420px; }
+.detail-preview { background: #f8fafc; display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+.detail-preview > img { width: 100%; flex: 1; object-fit: contain; border-radius: 6px; background: white; }
+.mask-preview { position: relative; }
+.mask-preview img { width: 100%; height: 120px; object-fit: contain; background: white; border-radius: 6px; border: 1px solid rgba(148,163,184,0.2); }
+.mask-preview-label { position: absolute; top: 6px; left: 6px; background: rgba(58,125,126,0.92); color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+.detail-fields { padding: 18px 20px; overflow-y: auto; max-height: 480px; }
+.detail-fields .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.detail-fields label { font-size: 12px; color: #94a3b8; }
+.detail-fields input, .detail-fields select { padding: 6px 10px; border: 1px solid rgba(148,163,184,0.3); border-radius: 6px; font-size: 13px; background: white; color: #1f2937; }
+.detail-fields input:focus, .detail-fields select:focus { outline: none; border-color: #3a7d7e; }
+.detail-fields .readonly span { font-size: 12.5px; color: #475569; padding: 6px 0; display: block; }
+.detail-fields .readonly .readonly-text { word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #64748b; }
+.detail-footer { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Bulk form */
+.bulk-form .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.bulk-form label { font-size: 12px; color: #94a3b8; }
+.bulk-form select { padding: 6px 10px; border: 1px solid rgba(148,163,184,0.3); border-radius: 6px; font-size: 13px; background: white; color: #1f2937; }
+.bulk-tip { font-size: 12px; color: #94a3b8; margin: 8px 0 0; line-height: 1.5; }
+
+
+/* View mode toggle */
+.view-toggle { display: inline-flex; border: 1px solid rgba(148,163,184,0.3); border-radius: 8px; overflow: hidden; margin-right: 12px; }
+.view-toggle button { padding: 5px 14px; background: white; color: #64748b; font-size: 12.5px; border: none; cursor: pointer; transition: all 0.15s ease; }
+.view-toggle button:hover { background: rgba(58,125,126,0.05); color: #2f6667; }
+.view-toggle button.active { background: #3a7d7e; color: white; }
+.view-toggle button + button { border-left: 1px solid rgba(148,163,184,0.3); }
+
+/* Image list (table-style) view */
+.image-list { background: white; border: 1px solid rgba(148,163,184,0.18); border-radius: 12px; overflow: hidden; }
+.image-list .list-header,
+.image-list .list-row { display: grid; align-items: center; gap: 8px; padding: 8px 12px; }
+.image-list .list-header { background: rgba(58,125,126,0.06); border-bottom: 1px solid rgba(58,125,126,0.18); font-size: 11.5px; font-weight: 600; color: #2f6667; letter-spacing: 0.02em; }
+.image-list .list-row { position: relative; border-bottom: 1px solid rgba(148,163,184,0.1); transition: background 0.15s ease; font-size: 12.5px; }
+.image-list .list-row:last-child { border-bottom: none; }
+.image-list .list-row:hover { background: rgba(58,125,126,0.03); }
+.image-list .list-row.selected { background: rgba(58,125,126,0.09); }
+.image-list .list-row.saving { opacity: 0.6; }
+.image-list .list-axes-0,
+.image-list .list-axes-1 { grid-template-columns: 32px 60px minmax(140px, 1.4fr) minmax(110px, 1fr) 110px repeat(var(--axis-cols, 0), minmax(110px, 1fr)) minmax(120px, 1fr) 130px; }
+.image-list .list-axes-2,
+.image-list .list-axes-3,
+.image-list .list-axes-4 { grid-template-columns: 32px 60px minmax(120px, 1fr) minmax(100px, 0.9fr) 100px repeat(var(--axis-cols, 0), minmax(110px, 1fr)) minmax(100px, 0.9fr) 130px; }
+.image-list .col { min-width: 0; }
+.image-list .col-check { display: flex; justify-content: center; }
+.image-list .col-check input { cursor: pointer; }
+.image-list .col-thumb img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; cursor: pointer; background: #f1f5f9; border: 1px solid rgba(148,163,184,0.18); transition: transform 0.15s ease; }
+.image-list .col-thumb img:hover { transform: scale(1.06); }
+.image-list .col-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #1f2937; cursor: pointer; }
+.image-list .col-name:hover { color: #3a7d7e; }
+.image-list .cell-input,
+.image-list .cell-select { width: 100%; padding: 5px 8px; border: 1px solid transparent; border-radius: 5px; font-size: 12px; background: transparent; color: #1f2937; font-family: inherit; }
+.image-list .cell-input { text-overflow: ellipsis; }
+.image-list .cell-input::placeholder { color: #cbd5e1; }
+.image-list .cell-input:hover,
+.image-list .cell-select:hover { background: rgba(58,125,126,0.04); border-color: rgba(148,163,184,0.2); }
+.image-list .cell-input:focus,
+.image-list .cell-select:focus { outline: none; background: white; border-color: #3a7d7e; box-shadow: 0 0 0 2px rgba(58,125,126,0.12); }
+.image-list .col-actions { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+.image-list .icon-btn { padding: 4px 10px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: #64748b; cursor: pointer; font-size: 11.5px; transition: all 0.15s ease; }
+.image-list .icon-btn:hover { background: rgba(58,125,126,0.08); color: #3a7d7e; border-color: rgba(58,125,126,0.18); }
+.image-list .icon-btn.danger:hover { background: rgba(239,68,68,0.08); color: #ef4444; border-color: rgba(239,68,68,0.22); }
+.saved-pulse { font-size: 10.5px; color: #3a7d7e; background: rgba(58,125,126,0.12); padding: 2px 7px; border-radius: 999px; animation: savedFade 1.5s ease; }
+@keyframes savedFade { 0% { opacity: 0; transform: translateY(-2px); } 15% { opacity: 1; transform: translateY(0); } 80% { opacity: 1; } 100% { opacity: 0.6; } }
+</style>
