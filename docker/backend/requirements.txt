@@ -1,0 +1,17 @@
+# 复制自 backend/requirements.txt，保持一致
+fastapi
+uvicorn[standard]
+sqlalchemy
+pymysql
+pydantic[email]
+pydantic-settings
+python-dotenv
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart
+httpx
+requests
+pillow
+alibabacloud-tea-openapi
+alibabacloud-imageseg20191230
+alibabacloud-tea-util
