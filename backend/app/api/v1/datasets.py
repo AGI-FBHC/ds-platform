@@ -176,7 +176,7 @@ def list_public_datasets(
         db.query(Dataset, User.nickname)
         .outerjoin(User, Dataset.user_id == User.id)
         .filter(Dataset.is_published == True)
-        .order_by(Dataset.is_pinned.desc(), Dataset.pinned_at.desc().nullslast(), Dataset.published_at.desc())
+        .order_by(Dataset.is_pinned.desc(), Dataset.published_at.desc())
     )
     if search:
         query = query.filter(
@@ -184,6 +184,14 @@ def list_public_datasets(
             | (Dataset.description.ilike(f"%{search}%"))
         )
     datasets = query.all()
+    # Sort: pinned first (by pinned_at desc), then by published_at desc
+    def sort_key(item):
+        ds, nickname = item
+        if ds.is_pinned:
+            return (0, ds.pinned_at or ds.published_at or ds.created_at)
+        else:
+            return (1, ds.published_at or ds.created_at)
+    datasets = sorted(datasets, key=sort_key, reverse=True)
     result = []
     for ds, nickname in datasets:
         fields = ds.fields or {}
